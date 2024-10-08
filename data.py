@@ -1,75 +1,52 @@
-import argparse
-import random
 from collections import defaultdict
 from pathlib import Path
+import random
+import argparse
 from typing import List, Tuple
 
-class ImageData:
-    def __init__(self, language, dpi, style, class_name, path):
-        self.language = language
-        self.dpi = dpi
-        self.style = style
-        self.class_name = class_name
-        self.path = path
-
-    def to_string(self) -> str:
-        return f"('{self.language}', '{self.dpi}', '{self.style}', '{self.class_name}', '{self.path}')"
-
-class DataPartitioner:
+class Datasplit:
     def __init__(self):
         self.data = defaultdict(list)
 
-    def add_data(self, key, data_points: List[ImageData]):
+    def add_data(self, key, data_points: List[Tuple[str, str, str, str, Path]]):
         self.data[key].extend(data_points)
 
     def save(self, output_file: Path):
         with output_file.open("w") as f:
-            for key, points in self.data.items():
+            for points in self.data.values():
                 for point in points:
-                    f.write(f"{point.to_string()}\n")
+                    f.write(f"('{point[0]}', '{point[1]}', '{point[2]}', '{point[3]}', '{point[4]}')\n")
 
-def split_data(data: List[ImageData], tr_ratio: float, te_ratio: float, val_ratio: float) -> Tuple[List[ImageData], List[ImageData], List[ImageData]]:
-    random.shuffle(data)
+def split_data(data: List[Tuple[str, str, str, str, Path]], tr_ratio: float, te_ratio: float, val_ratio: float) -> Tuple[List, List, List]:
     tr_end = int(tr_ratio * len(data))
     te_end = tr_end + int(te_ratio * len(data))
     return data[:tr_end], data[tr_end:te_end], data[te_end:]
 
 def prepare_datasets(args):
-    if args.tr_ratio + args.te_ratio + args.val_ratio != 1:
-        raise ValueError("Ratios must sum to 1.")
+    train_data, test_data, val_data = Datasplit(), Datasplit(), Datasplit()
+    all_images = []
 
-    train_data = DataPartitioner()
-    test_data = DataPartitioner()
-    val_data = DataPartitioner()
-    lang_dpi_mapping = dict(zip(args.lang, args.dpi))
-    all_images = []  
-
-    for lang in args.lang:
-        dpi = lang_dpi_mapping[lang]  
+    for lang, dpi in zip(args.lang, args.dpi):
         for char_dir in (args.input_path / lang).iterdir():
             if char_dir.is_dir():
-                class_name = char_dir.name
                 for style in args.style:
-                    image_paths = list((char_dir / dpi / style).glob("*.bmp"))
-                    images = [ImageData(lang, dpi, style, class_name, img_path) for img_path in image_paths]
-                    all_images.extend(images)  
+                    images = [(lang, dpi, style, char_dir.name, img_path) 
+                              for img_path in (char_dir / dpi / style).glob("*.bmp")]
+                    all_images.extend(images)
+
     random.shuffle(all_images)
     train, test, val = split_data(all_images, args.tr_ratio, args.te_ratio, args.val_ratio)
-    for lang in args.lang:
-        dpi = lang_dpi_mapping[lang]
-        for style in args.style:
-            class_name = f"Class for {lang}" 
-            key = (lang, dpi, style, class_name)
-            train_data.add_data(key, train)
-            test_data.add_data(key, test)
-            val_data.add_data(key, val)
+
+    # Using a common key to avoid redundant loop
+    for data_split, data_points in zip((train_data, test_data, val_data), (train, test, val)):
+        data_split.add_data("default", data_points)
 
     if args.tr_ratio > 0:
-        train_data.save(args.output_path / "training_set.txt")
+        train_data.save(args.output_path / "train_set.txt")
     if args.te_ratio > 0:
-        test_data.save(args.output_path / "testing_set.txt")
+        test_data.save(args.output_path / "test_set.txt")
     if args.val_ratio > 0:
-        val_data.save(args.output_path / "validation_set.txt")
+        val_data.save(args.output_path / "val_set.txt")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="command line arguments for the script.")

@@ -11,18 +11,6 @@ import numpy as np
 from model import OCRModel 
 
 
-class ToTensor:
-    def __call__(self, image):
-        return torch.from_numpy(image.transpose((2, 0, 1))).float() / 255.0
-
-
-class Resize:
-    def __init__(self, size):
-        self.size = size
-
-    def __call__(self, image):
-        return cv2.resize(image, self.size)
-
 
 class ImDataset(Dataset):
     def __init__(self, data_tuples, transform=None):
@@ -71,21 +59,10 @@ class ImDataset(Dataset):
 
     def __getitem__(self, index):
         image_path, label = self.data[index]
-
-        if not isinstance(image_path, Path):
-            image_path = Path(image_path)
-
-        if not image_path.exists():
-            print(f"Error: Path does not exist - {image_path}")
-            raise FileNotFoundError(f"Image file not found at {image_path}")
-
-
         image = cv2.imread(str(image_path))
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
         if self.transform:
             image = self.transform(image)
-
         label_tensor = torch.tensor(label, dtype=torch.long)
         return image, label_tensor
 
@@ -120,18 +97,14 @@ def train_model(train_data_file, val_data_file, batch_size, num_epochs, save_dir
     val_data_tuples = load_data_from_file(val_data_file)
 
     transform = transforms.Compose([
-        Resize((128, 128)), 
-        ToTensor(),          
+        transforms.Lambda(lambda img: cv2.resize(img, (128, 128))),
+        transforms.Lambda(lambda img: torch.from_numpy(img.transpose((2, 0, 1))).float() / 255.0),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     ])
 
     train_dataset = ImDataset(train_data_tuples, transform=transform)
     val_dataset = ImDataset(val_data_tuples, transform=transform)
-
-    if len(train_dataset) == 0:
-        logger.error("Training dataset is empty. Stop training.")
-        return
-
+  
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
     num_classes = len(train_dataset.label_mapping)
